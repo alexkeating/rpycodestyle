@@ -217,7 +217,6 @@ fn extraneous_whitespace(line: &str) -> Vec<Option<Error>> {
     let mut errors = Vec::new();
     for match_ in re.find_iter(line) {
         let text = match_.as_str();
-        println!("{}1", text);
         let mut char = text.trim().to_string();
         let found = match_.start();
         let before_char = &line.chars().nth(found - 1).unwrap();
@@ -231,7 +230,7 @@ fn extraneous_whitespace(line: &str) -> Vec<Option<Error>> {
         } else if before_char != &',' {
             let error_code = determine_extraneous_whitespace_error_code(text.trim().chars().nth(0).unwrap());
             let error = Error {
-                error_message: format!("{} whitespace after {}", error_code,
+                error_message: format!("{} whitespace before {}", error_code,
                                        &char),
                 column_number: found + 1
             };
@@ -381,5 +380,104 @@ mod test {
         let max_line_length = 11;
         let error = maximum_line_length(line, max_line_length);
         assert_eq!(error, None)
+    }
+
+    #[test]
+    fn extraneous_whitespace_after_paren() {
+        let line = "spam( ham[1], {eggs: 2})";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E201 whitespace after (".to_string(),
+            column_number: 5
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn extraneous_whitespace_after_square_bracket() {
+        let line = "spam(ham[ 1], {eggs: 2})";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E201 whitespace after [".to_string(),
+            column_number: 9
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn extraneous_whitespace_after_bracket() {
+        let line = "spam(ham[1], { eggs: 2})";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E201 whitespace after {".to_string(),
+            column_number: 14
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn extraneous_whitespace_before_paren() {
+        let line = "spam(ham[1], {eggs: 2} )";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E202 whitespace before )".to_string(),
+            column_number: 23
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn extraneous_whitespace_before_square_bracket() {
+        let line = "spam(ham[1 ], {eggs: 2})";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E202 whitespace before ]".to_string(),
+            column_number: 11
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn extraneous_whitespace_before_bracket() {
+        let line = "spam(ham[1], {eggs: 2 })";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E202 whitespace before }".to_string(),
+            column_number: 22
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn extraneous_whitespace_before_comma() {
+        let line = "if x == 4: print x, y; x, y = y , x";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E203 whitespace before ,".to_string(),
+            column_number: 32
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn extraneous_whitespace_before_semi_colon() {
+        let line = "if x == 4: print x, y ; x, y = y, x";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E203 whitespace before ;".to_string(),
+            column_number: 22
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn extraneous_whitespace_before_colon() {
+        let line = "if x == 4 : print x, y; x, y = y, x";
+        let error =  extraneous_whitespace(line);
+        let expected_error = Error {
+            error_message: "E203 whitespace before :".to_string(),
+            column_number: 10
+        };
+        assert_eq!(error, vec![Some(expected_error)])
     }
 }
