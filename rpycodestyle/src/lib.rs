@@ -1,14 +1,16 @@
 extern crate regex;
 use regex::Regex;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Error {
     column_number: usize,
     error_message: String,
 }
 
-pub fn reporting(path: &String, line_number: usize, line: &str, total_lines: usize) {
-    let errors = checker(line, line_number, total_lines);
+pub fn reporting(path: &String, line_number: usize, line: &str, total_lines: usize,
+                 previous_line: &str, num_blank_lines: usize) {
+    let errors = checker(line, line_number, total_lines, previous_line,
+                         num_blank_lines);
     for error_option in errors {
         if error_option != None {
             let error = error_option.unwrap();
@@ -19,11 +21,12 @@ pub fn reporting(path: &String, line_number: usize, line: &str, total_lines: usi
 }
 
 
-fn checker(line: &str, line_number: usize, total_lines: usize) ->  Vec<Option<Error>> {
+fn checker(line: &str, line_number: usize, total_lines: usize,
+           previous_line: &str, num_blank_lines: usize) ->  Vec<Option<Error>> {
     let mut errors = Vec::new();
     //    Config variables
     let max_length = 120;
-    let indent_char = '\t';
+    let indent_char = ' ';
 
 
     errors.push(maximum_line_length(line, max_length));
@@ -31,6 +34,8 @@ fn checker(line: &str, line_number: usize, total_lines: usize) ->  Vec<Option<Er
     errors.push(tabs_obsolete(line));
     errors.push(trailing_whitespace(line));
     errors.push(trailing_blank_lines(line, line_number, total_lines));
+    errors.push(blank_lines(line, line_number, previous_line, num_blank_lines));
+    errors.extend(extraneous_whitespace(line).iter().cloned());
     errors
 }
 
@@ -49,7 +54,7 @@ fn tabs_or_spaces(line: &str, indent_char: char) -> Option<Error> {
 //    E101: if a == 0:\n        a = 1\n\tb = 1
 
 
-    let re = Regex::new("([ \t]*)").unwrap();
+    let re = Regex::new(r"([ \t]*)").unwrap();
     let indent = re.find(line).unwrap();
     for (offset, char) in indent.as_str().chars().enumerate() {
         if char != indent_char {
@@ -64,7 +69,7 @@ fn tabs_or_spaces(line: &str, indent_char: char) -> Option<Error> {
 }
 
 fn tabs_obsolete(line: &str) -> Option<Error> {
-    let re = Regex::new("([ \t]*)").unwrap();
+    let re = Regex::new(r"([ \t]*)").unwrap();
     let indent = re.find(line).unwrap();
     if indent.as_str().contains('\t') {
         let error_message = "W191 indentation contains tabs".to_string();
@@ -167,6 +172,86 @@ fn maximum_line_length(line: &str, max_line_length: usize) -> Option<Error> {
         None
     }
 }
+
+fn blank_lines(line: &str, line_number: usize, previous_line: &str,
+               num_blank_lines: usize) -> Option<Error> {
+    // Not implementing 306, 301, 302, 305
+    if previous_line.starts_with("@") {
+        let error = Error {
+            error_message: "E304 blank lines found after function decorator".to_string(),
+            column_number: 0,
+        };
+        Some(error)
+    }
+    else if num_blank_lines > 2 {
+        let error = Error {
+            error_message: format!("E303 too many blank lines {}", num_blank_lines),
+            column_number: 0,
+        };
+        Some(error)
+    }
+    else {
+        None
+    }
+}
+
+fn extraneous_whitespace(line: &str) -> Vec<Option<Error>> {
+    //    Avoid extraneous whitespace.
+    //
+    //    Avoid extraneous whitespace in these situations:
+    //    - Immediately inside parentheses, brackets or braces.
+    //    - Immediately before a comma, semicolon, or colon.
+    //
+    //    Okay: spam(ham[1], {eggs: 2})
+    //    E201: spam( ham[1], {eggs: 2})
+    //    E201: spam(ham[ 1], {eggs: 2})
+    //    E201: spam(ham[1], { eggs: 2})
+    //    E202: spam(ham[1], {eggs: 2} )
+    //    E202: spam(ham[1 ], {eggs: 2})
+    //    E202: spam(ham[1], {eggs: 2 })
+    //
+    //    E203: if x == 4: print x, y; x, y = y , x
+    //    E203: if x == 4: print x, y ; x, y = y, x
+    //    E203: if x == 4 : print x, y; x, y = y, x
+    let re = Regex::new(r"[\[\(\{] | [\]\}\),;:]").unwrap();
+    let mut errors = Vec::new();
+    for match_ in re.find_iter(line) {
+        let text = match_.as_str();
+        println!("{}1", text);
+        let mut char = text.trim().to_string();
+        let found = match_.start();
+        let before_char = &line.chars().nth(found - 1).unwrap();
+
+        if text == char.clone() + " " {
+            let error = Error {
+                error_message: format!("E201 whitespace after {}", &char),
+                column_number: found + 1
+            };
+            errors.push(Some(error));
+        } else if before_char != &',' {
+            let error_code = determine_extraneous_whitespace_error_code(text.trim().chars().nth(0).unwrap());
+            let error = Error {
+                error_message: format!("{} whitespace after {}", error_code,
+                                       &char),
+                column_number: found + 1
+            };
+            errors.push(Some(error));
+        }
+    }
+    errors
+}
+
+fn determine_extraneous_whitespace_error_code(char: char) -> &'static str {
+    if char == '}' || char == ']' || char == ')' {
+        "E202"
+    }
+    else {
+        "E203"
+    }
+}
+
+
+
 
 #[cfg(test)]
 mod test {
