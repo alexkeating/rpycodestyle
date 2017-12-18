@@ -1,0 +1,14 @@
+language: rust
+rust:
+  - 1.6.0
+  - stable
+  - nightly
+matrix:
+  allow_failures:
+    - rust: nightly
+cache: cargo
+script:
+  - cd rpycodestyle
+  - cargo build --verbose --all
+  - cargo test --verbose --all
+  - echo test
