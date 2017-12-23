@@ -49,6 +49,7 @@ fn checker(line: &str, line_number: usize, total_lines: usize,
     errors.extend(extraneous_whitespace(line).iter().cloned());
     errors.extend(whitespace_around_keywords(line).iter().cloned());
     errors.push(missing_whitespace_after_import_keyword(line));
+    errors.extend(missing_whitespace(line).iter().cloned());
     errors
 }
 
@@ -331,6 +332,44 @@ fn missing_whitespace_after_import_keyword(line: &str) -> Option<Error> {
     }
 }
 
+fn missing_whitespace(line: &str) -> Vec<Option<Error>> {
+//    Each comma, semicolon or colon should be followed by whitespace.
+//
+//    Okay: [a, b]
+//    Okay: (3,)
+//    Okay: a[1:4]
+//    Okay: a[:4]
+//    Okay: a[1:]
+//    Okay: a[1:4:2]
+//    E231: ['a','b']
+//    E231: foo(bar,baz)
+//    E231: [{'a':'b'}]
+    let mut errors = Vec::new();
+
+    for (index, char) in line.chars().enumerate() {
+        let valid_char = char == ',' || char == ';' || char == ':';
+        if valid_char && (line.chars().nth(index + 1).unwrap() != ' ' ||
+            line.chars().nth(index + 1).unwrap() != '\t') {
+            let before: String = line.chars().take(index).collect();
+            if char == ':' && before.matches('[').count() > before.matches(']').count() &&
+                before.rfind('{') < before.rfind('['){
+                continue
+            }
+            if char == ',' && line.chars().nth(index + 1).unwrap() == ')' {
+                continue
+            }
+            if char == ',' && line.chars().nth(index + 1).unwrap() == ' ' {
+                continue
+            }
+            let error = Error {
+                error_message: format!("E231 missing whitespace after {}", char),
+                column_number: index,
+            };
+            errors.push(Some(error))
+        }
+    }
+    errors
+}
 
 #[cfg(test)]
 mod test {
@@ -632,5 +671,80 @@ mod test {
         let line = "from foo import (bar, baz)";
         let error =  missing_whitespace_after_import_keyword(line);
         assert_eq!(error, None)
+    }
+
+    #[test]
+    fn missing_whitespace_comma_okay() {
+        let line = "[a, b]";
+        let error =  missing_whitespace(line);
+        assert_eq!(error, vec![])
+    }
+
+    #[test]
+    fn missing_whitespace_comma_tuple_okay() {
+        let line = "(3,)";
+        let error =  missing_whitespace(line);
+        assert_eq!(error, vec![])
+    }
+
+    #[test]
+    fn missing_whitespace_colon_slice_okay() {
+        let line = "a[1:4]";
+        let error =  missing_whitespace(line);
+        assert_eq!(error, vec![])
+    }
+
+    #[test]
+    fn missing_whitespace_colon_all_before_slice_okay() {
+        let line = "a[:4]";
+        let error =  missing_whitespace(line);
+        assert_eq!(error, vec![])
+    }
+
+    #[test]
+    fn missing_whitespace_colon_all_after_slice_okay() {
+        let line = "a[:4]";
+        let error =  missing_whitespace(line);
+        assert_eq!(error, vec![])
+    }
+
+    #[test]
+    fn missing_whitespace_colon_step_slice_okay() {
+        let line = "a[:4]";
+        let error =  missing_whitespace(line);
+        assert_eq!(error, vec![])
+    }
+
+    #[test]
+    fn missing_whitespace_after_comma_array() {
+        let line = "['a','b']";
+        let error =  missing_whitespace(line);
+        let expected_error = Error {
+            error_message: "E231 missing whitespace after ,".to_string(),
+            column_number: 4
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
+    }
+
+    #[test]
+    fn missing_whitespace_after_comma_function() {
+        let line = "foo(bar,baz)";
+        let error =  missing_whitespace(line);
+        let expected_error = Error {
+            error_message: "E231 missing whitespace after ,".to_string(),
+            column_number: 7
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
+    }
+
+    #[test]
+    fn missing_whitespace_after_colon_dict() {
+        let line = "[{'a':'b'}]";
+        let error =  missing_whitespace(line);
+        let expected_error = Error {
+            error_message: "E231 missing whitespace after :".to_string(),
+            column_number: 5
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
     }
 }
