@@ -7,6 +7,17 @@ pub struct Error {
     error_message: String,
 }
 
+fn get_keywords() -> Vec<&'static str> {
+//    python keywords with print added and True, False and
+//    None removed
+    vec!["and", "as", "assert", "break", "class", "continue",
+         "def", "del", "elif", "else", "except",
+         "finally", "for", "from", "global",
+         "if", "import", "in", "is", "lambda", "nonlocal",
+         "not", "or", "pass", "raise", "return",
+         "try", "while", "with", "yield", "print"]
+}
+
 pub fn reporting(path: &String, line_number: usize, line: &str, total_lines: usize,
                  previous_line: &str, num_blank_lines: usize) {
     let errors = checker(line, line_number, total_lines, previous_line,
@@ -37,6 +48,7 @@ fn checker(line: &str, line_number: usize, total_lines: usize,
     errors.push(blank_lines(line, line_number, previous_line, num_blank_lines));
     errors.extend(extraneous_whitespace(line).iter().cloned());
     errors.extend(whitespace_around_keywords(line).iter().cloned());
+    errors.push(missing_whitespace_after_import_keyword(line));
     errors
 }
 
@@ -293,15 +305,30 @@ fn whitespace_around_keywords(line: &str) -> Vec<Option<Error>>{
     errors
 }
 
-fn get_keywords() -> Vec<&'static str> {
-//    python keywords with print added and True, False and
-//    None removed
-    vec!["and", "as", "assert", "break", "class", "continue",
-         "def", "del", "elif", "else", "except",
-         "finally", "for", "from", "global",
-         "if", "import", "in", "is", "lambda", "nonlocal",
-         "not", "or", "pass", "raise", "return",
-         "try", "while", "with", "yield", "print"]
+fn missing_whitespace_after_import_keyword(line: &str) -> Option<Error> {
+//    Multiple imports in form from x import (a, b, c) should have space
+//    between import statement and parenthesised name list.
+//
+//    Okay: from foo import (bar, baz)
+//    E275: from foo import(bar, baz)
+//    E275: from importable.module import(bar, baz)
+    let indicator = " import(";
+    if line.starts_with("from ") {
+        let found = line.find(indicator);
+        if found.is_some() {
+            let error = Error {
+                error_message: "E275: missing whitespace after keyword import".to_string(),
+                column_number: found.unwrap() + indicator.len() - 1
+            };
+            Some(error)
+        }
+        else {
+            None
+        }
+    }
+    else {
+        None
+    }
 }
 
 
@@ -576,5 +603,34 @@ mod test {
             column_number: 4
         };
         assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn missing_whitespace_after_import_keyword_absolute_no_space() {
+        let line = "from foo import(bar, baz)";
+        let error =  missing_whitespace_after_import_keyword(line);
+        let expected_error = Error {
+            error_message: "E275: missing whitespace after keyword import".to_string(),
+            column_number: 15
+        };
+        assert_eq!(error, Some(expected_error))
+    }
+
+    #[test]
+    fn missing_whitespace_after_import_keyword_relative_no_space() {
+        let line = "from importable.module import(bar, baz)";
+        let error =  missing_whitespace_after_import_keyword(line);
+        let expected_error = Error {
+            error_message: "E275: missing whitespace after keyword import".to_string(),
+            column_number: 29
+        };
+        assert_eq!(error, Some(expected_error))
+    }
+
+    #[test]
+    fn missing_whitespace_after_import_keyword_base() {
+        let line = "from foo import (bar, baz)";
+        let error =  missing_whitespace_after_import_keyword(line);
+        assert_eq!(error, None)
     }
 }
