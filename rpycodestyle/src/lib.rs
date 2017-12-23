@@ -36,6 +36,7 @@ fn checker(line: &str, line_number: usize, total_lines: usize,
     errors.push(trailing_blank_lines(line, line_number, total_lines));
     errors.push(blank_lines(line, line_number, previous_line, num_blank_lines));
     errors.extend(extraneous_whitespace(line).iter().cloned());
+    errors.extend(whitespace_around_keywords(line).iter().cloned());
     errors
 }
 
@@ -173,7 +174,7 @@ fn maximum_line_length(line: &str, max_line_length: usize) -> Option<Error> {
     }
 }
 
-fn blank_lines(line: &str, line_number: usize, previous_line: &str,
+fn blank_lines(_line: &str, _line_number: usize, previous_line: &str,
                num_blank_lines: usize) -> Option<Error> {
     // Not implementing 306, 301, 302, 305
     if previous_line.starts_with("@") {
@@ -217,7 +218,7 @@ fn extraneous_whitespace(line: &str) -> Vec<Option<Error>> {
     let mut errors = Vec::new();
     for match_ in re.find_iter(line) {
         let text = match_.as_str();
-        let mut char = text.trim().to_string();
+        let char = text.trim().to_string();
         let found = match_.start();
         let before_char = &line.chars().nth(found - 1).unwrap();
 
@@ -249,7 +250,59 @@ fn determine_extraneous_whitespace_error_code(char: char) -> &'static str {
     }
 }
 
+fn whitespace_around_keywords(line: &str) -> Vec<Option<Error>>{
+    let keywords = get_keywords();
+    let joined_keywords = keywords.join("|");
+    let regex_string = format!(r"(\s*)\b(?:{})\b(\s*)", joined_keywords);
+    let re = Regex::new(regex_string.as_str()).unwrap();
+    let mut errors = Vec::new();
+    for match_ in re.find_iter(line) {
+        let start = match_.start();
+        let end = match_.end();
 
+        if line.chars().nth(start).unwrap() == '\t' {
+            let error = Error {
+                error_message: "E274 tab before keyword".to_string(),
+                column_number: start
+            };
+            errors.push(Some(error))
+        } else if line.chars().nth(start).unwrap() == ' ' &&
+            line.chars().nth(start + 1).unwrap() == ' ' {
+            let error = Error {
+                error_message: "E272 multiple spaces before keyword".to_string(),
+                column_number: start
+            };
+            errors.push(Some(error))
+        }
+
+        if line.chars().nth(end - 1).unwrap() == '\t' {
+            let error = Error {
+                error_message: "E273 tab after keyword".to_string(),
+                column_number: end
+            };
+            errors.push(Some(error))
+        } else if line.chars().nth(end - 1).unwrap() == ' ' &&
+            line.chars().nth(end - 2).unwrap() == ' ' {
+            let error = Error {
+                error_message: "E271 multiple spaces after keyword".to_string(),
+                column_number: end
+            };
+            errors.push(Some(error))
+        }
+    }
+    errors
+}
+
+fn get_keywords() -> Vec<&'static str> {
+//    python keywords with print added and True, False and
+//    None removed
+    vec!["and", "as", "assert", "break", "class", "continue",
+         "def", "del", "elif", "else", "except",
+         "finally", "for", "from", "global",
+         "if", "import", "in", "is", "lambda", "nonlocal",
+         "not", "or", "pass", "raise", "return",
+         "try", "while", "with", "yield", "print"]
+}
 
 
 #[cfg(test)]
@@ -477,6 +530,50 @@ mod test {
         let expected_error = Error {
             error_message: "E203 whitespace before :".to_string(),
             column_number: 10
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn whitespace_around_keywords_space_after_and() {
+        let line = "True and  False";
+        let error =  whitespace_around_keywords(line);
+        let expected_error = Error {
+            error_message: "E271 multiple spaces after keyword".to_string(),
+            column_number: 10
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn whitespace_around_keywords_space_before_and() {
+        let line = "True  and False";
+        let error =  whitespace_around_keywords(line);
+        let expected_error = Error {
+            error_message: "E272 multiple spaces before keyword".to_string(),
+            column_number: 4
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn whitespace_around_keywords_tab_after_and() {
+        let line = "True and\tFalse";
+        let error =  whitespace_around_keywords(line);
+        let expected_error = Error {
+            error_message: "E273 tab after keyword".to_string(),
+            column_number: 9
+        };
+        assert_eq!(error, vec![Some(expected_error)])
+    }
+
+    #[test]
+    fn whitespace_around_keywords_tab_before_and() {
+        let line = "True\tand False";
+        let error =  whitespace_around_keywords(line);
+        let expected_error = Error {
+            error_message: "E274 tab before keyword".to_string(),
+            column_number: 4
         };
         assert_eq!(error, vec![Some(expected_error)])
     }
