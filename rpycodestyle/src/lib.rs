@@ -18,6 +18,15 @@ fn get_keywords() -> Vec<&'static str> {
          "try", "while", "with", "yield", "print"]
 }
 
+fn calculate_indent_level(line: &str, indent_char: char) -> usize {
+    for (index, char) in line.chars().enumerate() {
+        if char != indent_char {
+            return index
+        }
+    }
+    return 0
+}
+
 pub fn reporting(path: &String, line_number: usize, line: &str, total_lines: usize,
                  previous_line: &str, num_blank_lines: usize) {
     let errors = checker(line, line_number, total_lines, previous_line,
@@ -38,6 +47,8 @@ fn checker(line: &str, line_number: usize, total_lines: usize,
     //    Config variables
     let max_length = 120;
     let indent_char = ' ';
+    let indent_level = calculate_indent_level(line, indent_char);
+    let previous_line_indent_level = calculate_indent_level(previous_line, indent_char);
 
 
     errors.push(maximum_line_length(line, max_length));
@@ -50,6 +61,7 @@ fn checker(line: &str, line_number: usize, total_lines: usize,
     errors.extend(whitespace_around_keywords(line).iter().cloned());
     errors.push(missing_whitespace_after_import_keyword(line));
     errors.extend(missing_whitespace(line).iter().cloned());
+    errors.push(indentation(line, previous_line, indent_level, previous_line_indent_level));
     errors
 }
 
@@ -348,6 +360,9 @@ fn missing_whitespace(line: &str) -> Vec<Option<Error>> {
 
     for (index, char) in line.chars().enumerate() {
         let valid_char = char == ',' || char == ';' || char == ':';
+        if line.chars().nth(index + 1).is_none() {
+            continue
+        }
         if valid_char && (line.chars().nth(index + 1).unwrap() != ' ' ||
             line.chars().nth(index + 1).unwrap() != '\t') {
             let before: String = line.chars().take(index).collect();
@@ -371,8 +386,76 @@ fn missing_whitespace(line: &str) -> Vec<Option<Error>> {
     errors
 }
 
+fn indentation(line: &str, previous_line: &str,
+                indent_level: usize, previous_indent_level: usize) -> Option<Error>{
+//    Use 4 spaces per indentation level.
+//
+//    For really old code that you don't want to mess up, you can continue to
+//    use 8-space tabs.
+//
+//    Okay: a = 1
+//    Okay: if a == 0:\n    a = 1
+//    E111:   a = 1
+//    E114:   # a = 1
+//
+//    Okay: for item in items:\n    pass
+//    E112: for item in items:\npass
+//    E115: for item in items:\n# Hi\n    pass
+//
+//    Okay: a = 1\nb = 2
+//    E113: a = 1\n    b = 2
+//    E116: a = 1\n    # b = 2
+    let comment = line.to_string().trim_left().starts_with("#");
+    let indent_expected = previous_line.to_string().ends_with(":");
+    if indent_level % 4 != 0 && comment == false {
+        let error = Error {
+            error_message: "E111: indentation is not a multiple of four".to_string(),
+            column_number: 0
+        };
+        return Some(error)
+    }
+    else if indent_level % 4 != 0 && comment == true {
+        let error = Error {
+            error_message: "E114: indentation is not a multiple of four (comment)".to_string(),
+            column_number: 0
+        };
+        return Some(error)
+    }
+
+    if indent_expected && indent_level <= previous_indent_level
+        && comment == false {
+        let error = Error {
+            error_message: "E112: expected an indented block".to_string(),
+            column_number: 0,
+        };
+        return Some(error)
+    } else if !indent_expected && indent_level > previous_indent_level
+        && comment == false {
+        let error = Error {
+            error_message: "E113: unexpected indentation".to_string(),
+            column_number: 0,
+        };
+        return Some(error)
+    } else if indent_expected && indent_level <= previous_indent_level
+        && comment == true {
+        let error = Error {
+            error_message: "E115: expected an indented block (comment)".to_string(),
+            column_number: 0,
+        };
+        return Some(error)
+    } else if !indent_expected && indent_level > previous_indent_level
+        && comment == true {
+        let error = Error {
+            error_message: "E116: unexpected indentation (comment)".to_string(),
+            column_number: 0,
+        };
+        return Some(error)
+    }
+    return None
+}
+
 #[cfg(test)]
-mod test {
+mod test_checks {
     use super::*;
 
     #[test]
@@ -746,5 +829,176 @@ mod test {
             column_number: 5
         };
         assert_eq!(error, vec![Some(expected_error)]);
+    }
+
+    #[test]
+    fn indentation_top_level_okay() {
+        let line = "a = 1";
+        let previous_line = "";
+        let indent_level = 0;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn indentation_function_okay() {
+        let line = "    a = 1";
+        let previous_line = "if a == 0:";
+        let indent_level = 4;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn indentation_top_level_not_multiple_of_four() {
+        let line = "   a = 1";
+        let previous_line = "";
+        let indent_level = 3;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        let expected_error = Error {
+            error_message: "E111: indentation is not a multiple of four".to_string(),
+            column_number: 0,
+        };
+        assert_eq!(error, Some(expected_error));
+    }
+
+    #[test]
+    fn indentation_top_level_not_multiple_of_four_comment() {
+        let line = "   # a = 1";
+        let previous_line = "";
+        let indent_level = 3;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        let expected_error = Error {
+            error_message: "E114: indentation is not a multiple of four (comment)".to_string(),
+            column_number: 0,
+        };
+        assert_eq!(error, Some(expected_error));
+    }
+
+    #[test]
+    fn indentation_for_loop_okay() {
+        let line = "     pass";
+        let previous_line = "for item in items:";
+        let indent_level = 4;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn indentation_missing_indentation() {
+        let line = "pass";
+        let previous_line = "for item in items:";
+        let indent_level = 0;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        let expected_error = Error {
+            error_message: "E112: expected an indented block".to_string(),
+            column_number: 0,
+        };
+        assert_eq!(error, Some(expected_error));
+    }
+
+    #[test]
+    fn indentation_expected_indentation_comment() {
+        let line = "# Hi\n    pass";
+        let previous_line = "for item in items:";
+        let indent_level = 0;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        let expected_error = Error {
+            error_message: "E115: expected an indented block (comment)".to_string(),
+            column_number: 0,
+        };
+        assert_eq!(error, Some(expected_error));
+    }
+
+    #[test]
+    fn indentation_none_expected_okay() {
+        let line = "b = 2";
+        let previous_line = "a = 1";
+        let indent_level = 0;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn indentation_none_expected() {
+        let line = "    b = 2";
+        let previous_line = "a = 1";
+        let indent_level = 4;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        let expected_error = Error {
+            error_message: "E113: unexpected indentation".to_string(),
+            column_number: 0,
+        };
+        assert_eq!(error, Some(expected_error));
+    }
+
+    #[test]
+    fn indentation_none_expected_comment() {
+        let line = "    # b = 2";
+        let previous_line = "a = 1";
+        let indent_level = 4;
+        let previous_indent_level = 0;
+        let error =  indentation(line, previous_line,
+                                 indent_level, previous_indent_level);
+        let expected_error = Error {
+            error_message: "E116: unexpected indentation (comment)".to_string(),
+            column_number: 0,
+        };
+        assert_eq!(error, Some(expected_error));
+    }
+}
+
+#[cfg(test)]
+mod test_utils {
+    use super::*;
+
+    #[test]
+    fn calculate_indent_level_space_one() {
+        let indent_char = ' ';
+        let line = " Hello World";
+        let indent_level = calculate_indent_level(line, indent_char);
+        assert_eq!(1, indent_level);
+    }
+
+    #[test]
+    fn calculate_indent_level_tab_one() {
+        let indent_char = '\t';
+        let line = "\tHello World";
+        let indent_level = calculate_indent_level(line, indent_char);
+        assert_eq!(1, indent_level);
+    }
+
+    #[test]
+    fn calculate_indent_level_mix_one() {
+        let indent_char = ' ';
+        let line = "  \tHello World";
+        let indent_level = calculate_indent_level(line, indent_char);
+        assert_eq!(2, indent_level);
+    }
+
+    #[test]
+    fn calculate_indent_level_none() {
+        let indent_char = ' ';
+        let line = "Hello World";
+        let indent_level = calculate_indent_level(line, indent_char);
+        assert_eq!(0, indent_level);
     }
 }
