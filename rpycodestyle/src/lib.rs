@@ -63,6 +63,7 @@ fn checker(line: &str, line_number: usize, total_lines: usize,
     errors.extend(missing_whitespace(line).iter().cloned());
     errors.push(indentation(line, previous_line, indent_level, previous_line_indent_level));
     errors.extend(whitespace_around_operator(line).iter().cloned());
+    errors.extend(whitespace_around_comma(line).iter().cloned());
     errors
 }
 
@@ -502,6 +503,38 @@ fn whitespace_around_operator(line: &str) -> Vec<Option<Error>>{
         }
     }
      errors
+}
+
+fn whitespace_around_comma(line: &str) -> Vec<Option<Error>> {
+//    Avoid extraneous whitespace after a comma or a colon.
+//
+//    Note: these checks are disabled by default
+//
+//    Okay: a = (1, 2)
+//    E241: a = (1,  2)
+//    E242: a = (1,\t2)
+    let mut errors = Vec::new();
+    let re = Regex::new(r"[,;:]\s*(?:  |\t)").unwrap();
+
+    for match_ in re.find_iter(line) {
+        let start = match_.start();
+
+        if match_.as_str().contains('\t') {
+            let error = Error {
+                error_message: format!("E242 tab after {}", match_.as_str().trim()),
+                column_number: start + 1
+            };
+            errors.push(Some(error))
+        }
+        else {
+            let error = Error {
+                error_message: format!("E241 multiple spaces after {}", match_.as_str().trim()),
+                column_number: start + 1
+            };
+            errors.push(Some(error))
+        }
+    }
+    errors
 }
 
 #[cfg(test)]
@@ -1061,6 +1094,34 @@ mod test_checks {
         let error =  whitespace_around_operator(line);
         let expected_error = Error {
             error_message: "E224 tab after operator".to_string(),
+            column_number: 7
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
+    }
+    #[test]
+    fn whitespace_around_comma_okay() {
+        let line = "a = (1, 2)";
+        let error =  whitespace_around_operator(line);
+        assert_eq!(error, vec![]);
+    }
+
+    #[test]
+    fn whitespace_around_comma_space() {
+        let line = "a = (1,  2)";
+        let error =  whitespace_around_comma(line);
+        let expected_error = Error {
+            error_message: "E241 multiple spaces after ,".to_string(),
+            column_number: 7
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
+    }
+
+    #[test]
+    fn whitespace_around_comma_tab() {
+        let line = "a = (1,\t2)";
+        let error =  whitespace_around_comma(line);
+        let expected_error = Error {
+            error_message: "E242 tab after ,".to_string(),
             column_number: 7
         };
         assert_eq!(error, vec![Some(expected_error)]);
