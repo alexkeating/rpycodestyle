@@ -64,6 +64,7 @@ fn checker(line: &str, line_number: usize, total_lines: usize,
     errors.push(indentation(line, previous_line, indent_level, previous_line_indent_level));
     errors.extend(whitespace_around_operator(line).iter().cloned());
     errors.extend(whitespace_around_comma(line).iter().cloned());
+    errors.push(imports_on_separate_lines(line));
     errors
 }
 
@@ -535,6 +536,38 @@ fn whitespace_around_comma(line: &str) -> Vec<Option<Error>> {
         }
     }
     errors
+}
+
+fn imports_on_separate_lines(line: &str) -> Option<Error>{
+//    Place imports on separate lines.
+//
+//    Okay: import os\nimport sys
+//    E401: import sys, os
+//
+//    Okay: from subprocess import Popen, PIPE
+//    Okay: from myclas import MyClass
+//    Okay: from foo.bar.yourclass import YourClass
+//    Okay: import myclass
+//    Okay: import foo.bar.yourclass
+    let found = line.find(",");
+    if line.starts_with("import ") && found.is_some() {
+        let comma_position = found.unwrap();
+        let sub_string: String = line.chars().skip(comma_position).collect();
+        if !sub_string.contains(";") {
+            let error = Error {
+                error_message: "E401 multiple imports on one line".to_string(),
+                column_number: comma_position
+            };
+            Some(error)
+        }
+        else {
+            None
+        }
+    }
+    else {
+        None
+    }
+
 }
 
 #[cfg(test)]
@@ -1126,7 +1159,55 @@ mod test_checks {
         };
         assert_eq!(error, vec![Some(expected_error)]);
     }
+
+    #[test]
+    fn imports_on_separate_lines_base_okay() {
+        let line = "import os";
+        let error =  imports_on_separate_lines(line);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn imports_on_separate_lines_multiple_module_imports_okay() {
+        let line = "from subprocess import Popen, PIPE";
+        let error =  imports_on_separate_lines(line);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn imports_on_separate_lines_single_module_import_okay() {
+        let line = "from myclas import MyClass";
+        let error =  imports_on_separate_lines(line);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn imports_on_separate_lines_relative_single_module_import_okay() {
+        let line = "from foo.bar.yourclass import YourClass";
+        let error =  imports_on_separate_lines(line);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn imports_on_separate_lines_relative_module_import_okay() {
+        let line = "import foo.bar.yourclass";
+        let error =  imports_on_separate_lines(line);
+        assert_eq!(error, None);
+    }
+
+    #[test]
+    fn imports_on_separate_lines_same_line() {
+        let line = "import sys, os";
+        let error =  imports_on_separate_lines(line);
+        let expected_error = Error {
+            error_message: "E401 multiple imports on one line".to_string(),
+            column_number: 10
+        };
+        assert_eq!(error, Some(expected_error));
+    }
 }
+
+
 
 #[cfg(test)]
 mod test_utils {
