@@ -62,6 +62,7 @@ fn checker(line: &str, line_number: usize, total_lines: usize,
     errors.push(missing_whitespace_after_import_keyword(line));
     errors.extend(missing_whitespace(line).iter().cloned());
     errors.push(indentation(line, previous_line, indent_level, previous_line_indent_level));
+    errors.extend(whitespace_around_operator(line).iter().cloned());
     errors
 }
 
@@ -386,6 +387,7 @@ fn missing_whitespace(line: &str) -> Vec<Option<Error>> {
     errors
 }
 
+
 fn indentation(line: &str, previous_line: &str,
                 indent_level: usize, previous_indent_level: usize) -> Option<Error>{
 //    Use 4 spaces per indentation level.
@@ -452,6 +454,54 @@ fn indentation(line: &str, previous_line: &str,
         return Some(error)
     }
     return None
+}
+
+fn whitespace_around_operator(line: &str) -> Vec<Option<Error>>{
+//    Avoid extraneous whitespace around an operator.
+//
+//    Okay: a = 12 + 3
+//    E221: a = 4  + 5
+//    E222: a = 4 +  5
+//    E223: a = 4\t+ 5
+//    E224: a = 4 +\t5
+    let mut errors = Vec::new();
+    let re = Regex::new(r"(\s*)(?:[-+*/|!<=>%&^]+)(\s*)").unwrap();
+    for match_ in re.find_iter(line) {
+
+        let start = match_.start();
+        let end = match_.end();
+
+        if line.chars().nth(start).unwrap() == '\t' {
+            let error = Error {
+                error_message: "E223 tab before operator".to_string(),
+                column_number: start
+            };
+            errors.push(Some(error))
+        } else if line.chars().nth(start).unwrap() == ' ' &&
+            line.chars().nth(start + 1).unwrap() == ' '{
+            let error = Error {
+                error_message: "E221 multiple spaces before operator".to_string(),
+                column_number: start
+            };
+            errors.push(Some(error))
+        }
+
+        if line.chars().nth(end - 1).unwrap() == '\t' {
+            let error = Error {
+                error_message: "E224 tab after operator".to_string(),
+                column_number: end - 1
+            };
+            errors.push(Some(error))
+        } else if line.chars().nth(end - 1).unwrap() == ' ' &&
+            line.chars().nth(end - 2).unwrap() == ' '{
+            let error = Error {
+                error_message: "E222 multiple spaces after operator".to_string(),
+                column_number: end - 2
+            };
+            errors.push(Some(error))
+        }
+    }
+     errors
 }
 
 #[cfg(test)]
@@ -963,6 +1013,57 @@ mod test_checks {
             column_number: 0,
         };
         assert_eq!(error, Some(expected_error));
+    }
+
+    #[test]
+    fn whitespace_around_operator_okay() {
+        let line = "a = 12 + 3";
+        let error =  whitespace_around_operator(line);
+        assert_eq!(error, vec![]);
+    }
+
+    #[test]
+    fn whitespace_around_operator_extra_left() {
+        let line = "a = 4  + 5";
+        let error =  whitespace_around_operator(line);
+        let expected_error = Error {
+            error_message: "E221 multiple spaces before operator".to_string(),
+            column_number: 5
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
+    }
+
+    #[test]
+    fn whitespace_around_operator_extra_right() {
+        let line = "a = 4 +  5";
+        let error =  whitespace_around_operator(line);
+        let expected_error = Error {
+            error_message: "E222 multiple spaces after operator".to_string(),
+            column_number: 7
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
+    }
+
+    #[test]
+    fn whitespace_around_operator_extra_left_tab() {
+        let line = "a = 4\t+ 5";
+        let error =  whitespace_around_operator(line);
+        let expected_error = Error {
+            error_message: "E223 tab before operator".to_string(),
+            column_number: 5
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
+    }
+
+    #[test]
+    fn whitespace_around_operator_extra_right_tab() {
+        let line = "a = 4 +\t5";
+        let error =  whitespace_around_operator(line);
+        let expected_error = Error {
+            error_message: "E224 tab after operator".to_string(),
+            column_number: 7
+        };
+        assert_eq!(error, vec![Some(expected_error)]);
     }
 }
 
